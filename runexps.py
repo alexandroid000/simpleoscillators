@@ -1,25 +1,23 @@
 from testsync import *
 
-N = 6
-trials = 20
+N = 3
+trials = 3
 
-timesteps_per_cycle = 1500.
-cycle_time = 15. # 15 "seconds"
+cycle_time = 10. 
 num_cycles = 20
 
-dt = cycle_time/timesteps_per_cycle
+dt = 0.05
+timesteps_per_cycle = cycle_time/dt
 T = int(timesteps_per_cycle*num_cycles)
-w = 2*pi/cycle_time
-
-
+print("T=", T)
 
 
 i=0
 
-for vizVal in [True, False]:
-    for Kdt in [0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 1.0]:
-        print(i)
-        K = Kdt/dt
-        alldata, fname = runTrials(trials, N, K, T, w, dt, vizVal)
-        makeplots(alldata, fname, N, T)
-        i+=1
+for Kdt in [0.05*j for j in range(0,21)]:
+    print("exp",i)
+    print("KDT=",Kdt)
+    K = Kdt/dt
+    alldata, statedata, fname = runTrials(trials, N, K, T, dt)
+    makeplots(alldata, statedata, fname, N, T)
+    i+=1

@@ -2,6 +2,7 @@ from math import pi
 import matplotlib.pyplot as plt
 import numpy as np
 from copy import copy, deepcopy
+from random import random
 
 
 def phase_distance(th1, th2):
@@ -15,20 +16,74 @@ def phase_distance(th1, th2):
 
     return val
 
+class Bot:
 
-def runTrials(trials, N, K, T, w, dt, vizVal):
+    def __init__(self, K, dt):
+        self.K = K
+        self.dt = dt
+        self.Tinf = 9
+        self.Tdef = 6
+        self.Tinfi = 9
+        self.Tdefi = 6
+        self.Trest = 15
+        self.infFrac = self.Tinf/(self.Tinf+self.Tdef)
+        self.T = self.Trest*random() # start at random point in rest phase
+        self.state = "r"
+        self.phase = 2*np.pi*(self.T/(self.Tinf+self.Tdef+self.Trest))
+        self.currCycleTime = self.Tinfi + self.Tdefi + self.Trest
+
+    def passiveUpdate(self):
+        self.T += self.dt
+        self.phase = 2*np.pi*self.T/(self.Tinfi+self.Tdefi+self.Trest)
+
+    def activeUpdate(self):
+        self.T += self.K*self.dt
+        self.phase = 2*np.pi*self.T/(self.Tinfi+self.Tdefi+self.Trest)
+
+    def inflationRule(self):
+        self.state = "e"
+        self.Tinfi = self.infFrac* (self.Tinf + self.Tdef - (self.T - self.Tinfi - self.Tdefi - self.Trest))
+        self.Tdefi = self.Tdef*(self.Tinfi/self.Tinf)
+        self.currCycleTime = self.Tinfi + self.Tdefi + self.Trest
+        self.T = 0.
+        self.phase = 0.
+
+
+    def checkTransition(self):
+        if self.T >= self.Tinfi and self.state == "e":
+            self.state = 'c'
+        elif self.T >= (self.Tinfi+ self.Tdefi) and self.state == 'c':
+            self.state = 'r'
+            self.Tinfi = self.Tinf
+            self.Tdefi = self.Tdef
+        elif self.T >= (self.currCycleTime):
+            self.inflationRule()
+        else:
+            pass
+
+
+def runTrials(trials, N, K, T, dt):
 
     Kdt = K*dt
     alldata = np.empty((trials,T,N))
-    fname = "N"+str(N)+"_Kdt"+str(Kdt)+"_Nth"+str(vizVal)
+    allstatedata = np.empty((trials,T,N),dtype=str)
+    fname = "N"+str(N)+"_Kdt"+str(Kdt)
 
     for trial in range(trials):
 
-        states = np.zeros((2,N), dtype=bool)
-        thetas = pi*np.random.rand(N)
+        # start all agents at rest, uniformly random phase
+        states = np.zeros((2,N), dtype=str)
+        #thetas = pi + pi*np.random.rand(N)
+
+
+        bots = [Bot(K,dt) for i in range(N)]
 
         th_hist = np.zeros((T,N), dtype=float)
-        th_hist[0] = copy(thetas)
+        state_hist = np.zeros((T,N), dtype=str)
+        th_hist[0] = np.array(copy([b.phase for b in bots]))
+        state_hist[0] = np.array(copy([b.state for b in bots]))
+        states[0] = np.array([b.state for b in bots])
+        states[1] = np.array([b.state for b in bots])
 
         for t in range(1,T):
 
@@ -36,61 +91,55 @@ def runTrials(trials, N, K, T, w, dt, vizVal):
                 n1 = (i-1) % N
                 n2 = (i+1) % N
 
-                th1 = th_hist[t-1][n1] 
-                th2 = th_hist[t-1][n2] 
 
                 # update i if either neighbor inflated
-                if th1 > 0 and th1 < pi and states[0][n1] == False: # if new neighbor inflate
-                    states[1][n1] = True
-                    if states[0][i] == False: # current agent in rest state
-                        if vizVal == True:
-                            thetas[i] += K*phase_distance(thetas[i],th1)*dt # apply phase offset jump
-                        else:
-                            thetas[i] += K*thetas[i]*dt # apply phase offset jump
-
-                if th1 != th2 and th2 > 0 and th2 < pi and states[0][n2] == False: # if new neighbor inflate
-                    states[1][n2] = True
-                    if states[0][i] == False: # current agent in rest state
-                        if vizVal == True:
-                            thetas[i] += K*phase_distance(thetas[i],th2)*dt # apply phase offset jump
-                        else:
-                            thetas[i] += K*thetas[i]*dt # apply phase offset jump
-                
-
-                thetas[i] += w*dt
+                if states[1][i] == 'r': # current agent in rest state
+                    if (states[0][n1] == 'r' and states[1][n1] == 'e') or (states[0][n2] == 'r' and states[1][n2] == 'e'): # if new neighbor inflation
+                        bots[i].activeUpdate()
+                        bots[i].checkTransition()
+                    else:
+                        bots[i].passiveUpdate()
+                        bots[i].checkTransition()
+                else:
+                    bots[i].passiveUpdate()
+                    bots[i].checkTransition()
 
 
-                if thetas[i] > pi and states[0][i] == True:
-                    states[1][i] = False
-
-                if thetas[i] > 2*pi:
-                    thetas[i] = thetas[i] % (2*pi)
-
-            th_hist[t] = copy(thetas)
+            th_hist[t] = copy([b.phase for b in bots])
             states[0] = copy(states[1])
+            state_hist[t] = copy(states[1])
+            states[1] = [b.state for b in bots]
 
         alldata[trial] = deepcopy(th_hist)
+        allstatedata[trial] = deepcopy(state_hist)
 
-    return alldata, fname
-
-
+    return alldata, allstatedata, fname
 
 def order_param(ths, N, axis=None):
     return (1/N)*np.abs(np.sum(np.exp(ths*1j), axis=axis))
 
-def makeplots(alldata, fname, N, T):
-    #plot1 = plt.figure(1)
-    #for i in range(N):
-    #    plt.plot(range(T), th_hist[:,i])
-    #plt.savefig(fname+"_trajectories.png",bbox_inches='tight')
+
+def plot_colourline(t,val,c):
+    cmap ={'r':'k', 'e':'b','c':'g'}
+    ax = plt.gca()
+    for i in np.arange(len(t)-1):
+        ax.plot([t[i],t[i+1]],[val[i],val[i+1]], c=cmap[c[i]])
+    return
+
+
+def makeplots(alldata, statedata, fname, N, T):
+    trial1 = alldata[0]
+    trial1s = statedata[0]
+    plot1 = plt.figure(1)
+    for j in range(N):
+        plot_colourline(range(T),trial1[:,j],trial1s[:,j])
+    plt.savefig(fname+"_trajectories.png",bbox_inches='tight')
+    plt.clf()
 
     all_ops = np.array([order_param(ths, N, axis=1) for ths in alldata])
-    #print(all_ops)
 
     avg_ops = np.average(all_ops, axis=0)
-    #print("average:",avg_ops)
     std_ops = np.std(all_ops, axis=0)
-    #print("std:",std_ops)
 
     #plot2 = plt.figure(2)
     #
